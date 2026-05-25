@@ -22,19 +22,20 @@ fn current_dir() -> PathBuf {
 }
 
 fn main() {
-    let mut input = String::new();
-    // let mut command: Command;
+    let mut input: String; // let mut command: Command;
+    loop {
+        input = String::new();
+        print!("{} >>> ", current_dir().display());
+        io::stdout().flush().unwrap();
 
-    print!("{} >>> ", current_dir().display());
-    io::stdout().flush().unwrap();
-
-    match io::stdin().read_line(&mut input) {
-        Ok(_) => {
-            if let Some(mut cmd) = parse_cmd(input) {
-                // println!("{:?}", cmd);
-                let output = cmd.status().expect("can't execute command");
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                if let Some(mut cmd) = parse_cmd(input) {
+                    // println!("{:?}", cmd);
+                    let output = cmd.status().expect("can't execute command");
+                }
             }
+            Err(error) => print!("error: {error}"),
         }
-        Err(error) => print!("error: {error}"),
     }
 }
