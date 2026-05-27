@@ -1,8 +1,7 @@
+pub mod builtin;
 pub mod lexer;
 use std::io::{self, Write};
 use std::path::PathBuf;
-
-use crate::lexer::parse_cmd;
 
 fn current_dir() -> PathBuf {
     std::env::current_dir().unwrap()
@@ -10,21 +9,28 @@ fn current_dir() -> PathBuf {
 
 fn main() {
     let mut input: String; // let mut command: Command;
-    // loop {
-    input = String::new();
-    print!("{} >>> ", current_dir().display());
-    io::stdout().flush().unwrap();
 
-    match io::stdin().read_line(&mut input) {
-        Ok(_) => {
-            if let Some(mut cmd) = parse_cmd(input.clone()) {
-                // println!("{:?}", cmd);
-                let output = cmd.status().expect("can't execute command");
+    loop {
+        input = String::new();
+        print!("{} $ ", current_dir().display());
+        io::stdout().flush().unwrap();
+
+        match io::stdin().read_line(&mut input) {
+            Ok(_) => {
+                let tokens = lexer::token_to_command(lexer::parse(input));
+                // if tokens.command.is_empty() {
+                //     println!("")
+                let cmd = tokens.command[0].as_str();
+                match cmd {
+                    "exit" => break,
+                    "echo" => builtin::echo_cmd(tokens.command),
+                    "type" => builtin::type_cmd(tokens.command),
+                    _ => println!("{}: command not found", cmd),
+                }
             }
+            Err(error) => print!("error: {error}"),
         }
-        Err(error) => print!("error: {error}"),
     }
-    // }
 
-    lexer::parse(input);
+    // lexer::parse(input);
 }
