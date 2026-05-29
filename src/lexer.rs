@@ -44,14 +44,14 @@ pub fn parse(cmd_string: String) -> Vec<Token> {
         tokens.push(token);
         buffer = String::new();
     }
-    println!("{:?}", tokens);
+    // println!("{:?}", tokens);
     tokens
 }
 
 fn parse_char(chars: &mut Chars, buffer: &mut String) -> Option<Token> {
     let mut chars_peekable = chars.peekable();
     if let Some(c) = chars_peekable.peek() {
-        println!("{c}");
+        // println!("{c}");
         match c {
             '\n' => {
                 chars_peekable.next();
@@ -129,7 +129,7 @@ fn parse_char(chars: &mut Chars, buffer: &mut String) -> Option<Token> {
 fn parse_quote(chars: &mut Chars, buffer: &mut String) -> Option<Token> {
     let mut chars_peekable = chars.peekable();
     if let Some(c) = chars_peekable.peek() {
-        println!("{c}");
+        // println!("{c}");
         if *c == '\"' {
             chars_peekable.next();
             Some(Token {
@@ -159,7 +159,7 @@ fn parse_quote(chars: &mut Chars, buffer: &mut String) -> Option<Token> {
         }
     } else {
         panic!("doesnt found \"");
-        None
+        // None
     }
 }
 
@@ -226,3 +226,4 @@ pub fn parse_cmd(cmd_string: String) -> Option<Command> {
     }
     Some(command)
 }
+
