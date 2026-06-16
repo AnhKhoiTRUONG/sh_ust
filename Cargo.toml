@@ -1,7 +1,9 @@
 [package]
-name = "minishell"
+name = "codecrafters-shell"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nix = { version = "0.29", features = ["fs", "user"] }
+rustyline-derive = "0.12.0"
+rustyline = "18.0.0"
+nix = { version = "0.31.3", features = ["fs", "user"] }
