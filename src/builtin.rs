@@ -1,6 +1,5 @@
 use nix::unistd::AccessFlags;
 use nix::unistd::access;
-use rustyline::completion::Candidate;
 use std::env::home_dir;
 use std::env::set_current_dir;
 use std::fs;
@@ -12,7 +11,7 @@ use std::process::Command;
 use crate::lexer::RedirectionType;
 use crate::lexer::SimpleCommand;
 
-pub static BUILTIN_CMDS: [&str; 5] = ["echo", "exit", "type", "pwd", "cd"];
+pub static BUILTIN_CMDS: [&str; 6] = ["echo", "exit", "type", "pwd", "cd", "complete"];
 const PATH_SEPARATED: char = ':';
 
 pub fn execute_builtins(cmd: SimpleCommand) {
@@ -195,12 +194,9 @@ pub fn list_all_executable(line: &str) -> Vec<String> {
                     for executable in exec_path {
                         let mut cmd = executable
                             .unwrap()
-                            .path()
+                            .file_name()
                             .to_string_lossy()
-                            .split('/')
-                            .last()
-                            .unwrap()
-                            .to_owned();
+                            .to_string();
                         if cmd.starts_with(line) {
                             cmd.push(' ');
                             candidates.push(cmd);
