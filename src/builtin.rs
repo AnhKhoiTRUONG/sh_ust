@@ -1,17 +1,18 @@
 use nix::unistd::AccessFlags;
 use nix::unistd::access;
+use std::collections::HashMap;
 use std::env::home_dir;
 use std::env::set_current_dir;
 use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command};
 
 use crate::lexer::RedirectionType;
 use crate::lexer::SimpleCommand;
 
-pub static BUILTIN_CMDS: [&str; 6] = ["echo", "exit", "type", "pwd", "cd", "complete"];
+pub static BUILTIN_CMDS: [&str; 7] = ["echo", "exit", "type", "pwd", "cd", "complete", "jobs"];
 const PATH_SEPARATED: char = ':';
 
 pub fn execute_builtins(cmd: SimpleCommand) {
@@ -157,6 +158,27 @@ fn change_dir(path: &PathBuf) {
     }
 }
 
+pub fn complete_cmd(args: Vec<String>, reg: &mut HashMap<String, String>) {
+    if args.len() == 3 {
+        if args[1] == "-p" {
+            match reg.get(&args[2]) {
+                Some(file) => println!("complete -C '{}' {}", file, args[2]),
+                None => println!("complete: {}: no completion specification", args[2]),
+            }
+        } else if args[1] == "-r" {
+            reg.remove(&args[2]);
+        } else {
+            eprintln!("Wrong mode for complete_cmd")
+        }
+    } else if args.len() == 4 {
+        reg.insert(args[3].clone(), args[2].clone());
+    }
+}
+
+// pub fn jobs_cmd() {
+//     // println!();
+// }
+
 fn is_builtin(cmd: &str) -> bool {
     BUILTIN_CMDS.contains(&cmd)
 }
@@ -224,76 +246,89 @@ pub fn type_cmd(args: Vec<String>) {
 }
 
 //check if the command exist then passed the arguments in
-pub fn run_cmd(simple_command: SimpleCommand) {
-    let args = simple_command.command;
+pub fn run_cmd(simple_command: SimpleCommand, jobs: &mut Vec<Child>) {
+    let mut args = simple_command.command;
     let cmd_name = args[0].clone();
     if find_executable(cmd_name.as_str()).is_some() {
         let mut cmd = Command::new(cmd_name);
+
+        let is_background_job = args.last().unwrap() == "&";
+        if is_background_job {
+            args.pop();
+        }
+
         for arg in args.iter().skip(1) {
             cmd.arg(arg);
         }
 
-        // Print the output
-        if simple_command.redirection.is_empty() {
-            cmd.status().unwrap();
+        if is_background_job {
+            let child = cmd.spawn().expect("command failed to start");
+            let child_id = child.id();
+            jobs.push(child);
+            println!("[{}] {}", jobs.len(), child_id);
         } else {
-            for redir in simple_command.redirection {
-                match redir.redir_type {
-                    RedirectionType::Out => {
-                        let output_file_path = Path::new(redir.file.as_str());
-                        let file = match File::create(output_file_path) {
-                            Ok(f) => f,
-                            Err(e) => {
-                                eprintln!("shell: {}: {}", redir.file, e);
-                                panic!()
-                            }
-                        };
-                        cmd.stdout(file).status().unwrap();
-                    }
-                    RedirectionType::OutStderr => {
-                        let output_file_path = Path::new(redir.file.as_str());
-                        let file = match File::create(output_file_path) {
-                            Ok(f) => f,
-                            Err(e) => {
-                                eprintln!("shell: {}: {}", redir.file, e);
-                                panic!()
-                            }
-                        };
-                        cmd.stderr(file).status().unwrap();
-                    }
+            // Print the output
+            if simple_command.redirection.is_empty() {
+                cmd.status().unwrap();
+            } else {
+                for redir in simple_command.redirection {
+                    match redir.redir_type {
+                        RedirectionType::Out => {
+                            let output_file_path = Path::new(redir.file.as_str());
+                            let file = match File::create(output_file_path) {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    eprintln!("shell: {}: {}", redir.file, e);
+                                    panic!()
+                                }
+                            };
+                            cmd.stdout(file).status().unwrap();
+                        }
+                        RedirectionType::OutStderr => {
+                            let output_file_path = Path::new(redir.file.as_str());
+                            let file = match File::create(output_file_path) {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    eprintln!("shell: {}: {}", redir.file, e);
+                                    panic!()
+                                }
+                            };
+                            cmd.stderr(file).status().unwrap();
+                        }
 
-                    RedirectionType::Append => {
-                        let file = match File::options()
-                            .append(true)
-                            .create(true)
-                            .open(redir.file.as_str())
-                        {
-                            Ok(f) => f,
-                            Err(e) => {
-                                eprintln!("shell: {}: {}", redir.file, e);
-                                panic!()
-                            }
-                        };
+                        RedirectionType::Append => {
+                            let file = match File::options()
+                                .append(true)
+                                .create(true)
+                                .open(redir.file.as_str())
+                            {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    eprintln!("shell: {}: {}", redir.file, e);
+                                    panic!()
+                                }
+                            };
 
-                        cmd.stdout(file).status().unwrap();
+                            cmd.stdout(file).status().unwrap();
+                        }
+
+                        RedirectionType::AppendStderr => {
+                            let file = match File::options()
+                                .append(true)
+                                .create(true)
+                                .open(redir.file.as_str())
+                            {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    eprintln!("shell: {}: {}", redir.file, e);
+                                    panic!()
+                                }
+                            };
+
+                            cmd.stderr(file).status().unwrap();
+                        }
+                        _ => todo!(),
                     }
-
-                    RedirectionType::AppendStderr => {
-                        let file = match File::options()
-                            .append(true)
-                            .create(true)
-                            .open(redir.file.as_str())
-                        {
-                            Ok(f) => f,
-                            Err(e) => {
-                                eprintln!("shell: {}: {}", redir.file, e);
-                                panic!()
-                            }
-                        };
-
-                        cmd.stderr(file).status().unwrap();
-                    }
-                    _ => todo!(),
                 }
             }
         }

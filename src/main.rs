@@ -1,10 +1,12 @@
 pub mod builtin;
 pub mod completer;
 pub mod lexer;
-use crate::builtin::{cd_cmd, pwd_cmd, run_cmd};
+use crate::builtin::{cd_cmd, complete_cmd, pwd_cmd, run_cmd};
 use crate::completer::MyCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::{CompletionType, Config, Editor, history::DefaultHistory};
+use std::collections::HashMap;
+use std::process::Child;
 
 // fn current_dir() -> PathBuf {
 //     std::env::current_dir().unwrap()
@@ -13,6 +15,7 @@ use rustyline::{CompletionType, Config, Editor, history::DefaultHistory};
 // fn treat_cmd(simple_cmd: SimpleCommand) {}
 
 fn main() {
+    //registers for complete builtin
     // let mut input: String; // let mut command: Command;
     let config = Config::builder()
         .completion_type(CompletionType::List)
@@ -21,15 +24,25 @@ fn main() {
     let mut rl: Editor<MyCompleter, DefaultHistory> = Editor::with_config(config).unwrap();
 
     // let mut rl: Editor<MyCompleter, DefaultHistory> = Editor::new().unwrap();
-    rl.set_helper(Some(MyCompleter));
+    let my_completer = MyCompleter {
+        completer_reg: HashMap::new(),
+    };
+    rl.set_helper(Some(my_completer));
+
+    let mut jobs: Vec<Child> = Vec::new();
 
     loop {
-        // input = String::new();
-        // print!("{} $ ", current_dir().display());
-        // print!("$ ");
-        // io::stdout().flush().unwrap();
+        //check the jobs
+        // println!("{:?}", jobs);
+        jobs.retain_mut(|job| match job.try_wait() {
+            Ok(Some(_)) => false,
+            Ok(None) => true,
+            Err(e) => {
+                println!("error attempting to wait: {e}");
+                false
+            }
+        });
 
-        // match io::stdin().read_line(&mut input) {
         match rl.readline("$ ") {
             Ok(input) => {
                 rl.add_history_entry(&input).unwrap();
@@ -47,7 +60,13 @@ fn main() {
                         "type" => builtin::type_cmd(tokens.command),
                         "pwd" => pwd_cmd(),
                         "cd" => cd_cmd(tokens.command),
-                        _ => run_cmd(tokens),
+                        "complete" => {
+                            if let Some(completer_helper) = rl.helper_mut() {
+                                complete_cmd(tokens.command, &mut completer_helper.completer_reg);
+                            }
+                        }
+                        "jobs" => {}
+                        _ => run_cmd(tokens, &mut jobs),
                     }
                 }
             }
