@@ -1,11 +1,11 @@
 pub mod builtin;
 pub mod completer;
 pub mod lexer;
-use crate::builtin::{cd_cmd, complete_cmd, pwd_cmd, run_cmd};
+use crate::builtin::{cd_cmd, complete_cmd, jobs_cmd, pwd_cmd, run_cmd};
 use crate::completer::MyCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::{CompletionType, Config, Editor, history::DefaultHistory};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Child;
 
 // fn current_dir() -> PathBuf {
@@ -29,17 +29,34 @@ fn main() {
     };
     rl.set_helper(Some(my_completer));
 
-    let mut jobs: Vec<Child> = Vec::new();
-
+    // let mut jobs: Vec<Child> = Vec::new();
+    let mut active_jobs: BTreeMap<u32, (Child, String)> = BTreeMap::new();
     loop {
         //check the jobs
-        // println!("{:?}", jobs);
-        jobs.retain_mut(|job| match job.try_wait() {
-            Ok(Some(_)) => false,
-            Ok(None) => true,
-            Err(e) => {
-                println!("error attempting to wait: {e}");
-                false
+        // let mut pid_to_remove = Vec::new();
+        // println!("{:?}", active_jobs);
+        // jobs.retain_mut(|job| match job.try_wait() {
+        //     Ok(Some(_)) => false,
+        //     Ok(None) => true,
+        //     Err(e) => {
+        //         println!("error attempting to wait: {e}");
+        //         false
+        //     }
+        // });
+        active_jobs.retain(|_pid, (child, command)| {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // Return false to delete it from the HashMap instantly
+                    false
+                }
+                Ok(None) => {
+                    // Return true to keep it in the HashMap
+                    true
+                }
+                Err(e) => {
+                    println!("error attempting to wait: {e}");
+                    false // Delete it on error
+                }
             }
         });
 
@@ -65,8 +82,10 @@ fn main() {
                                 complete_cmd(tokens.command, &mut completer_helper.completer_reg);
                             }
                         }
-                        "jobs" => {}
-                        _ => run_cmd(tokens, &mut jobs),
+                        "jobs" => {
+                            jobs_cmd(&active_jobs);
+                        }
+                        _ => run_cmd(&tokens, &mut active_jobs),
                     }
                 }
             }

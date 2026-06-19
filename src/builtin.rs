@@ -1,5 +1,6 @@
 use nix::unistd::AccessFlags;
 use nix::unistd::access;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::env::home_dir;
 use std::env::set_current_dir;
@@ -175,9 +176,20 @@ pub fn complete_cmd(args: Vec<String>, reg: &mut HashMap<String, String>) {
     }
 }
 
-// pub fn jobs_cmd() {
-//     // println!();
-// }
+pub fn jobs_cmd(jobs: &BTreeMap<u32, (Child, String)>) {
+    let mut i = 1;
+    let len = jobs.len();
+    for (pid, (child, command_name)) in jobs {
+        if len - i == 1 {
+            println!("[{}]-  Running                 {}", i, command_name);
+        } else if len - i == 0 {
+            println!("[{}]+  Running                 {}", i, command_name);
+        } else {
+            println!("[{}]  Running                 {}", i, command_name);
+        }
+        i += 1;
+    }
+}
 
 fn is_builtin(cmd: &str) -> bool {
     BUILTIN_CMDS.contains(&cmd)
@@ -246,8 +258,8 @@ pub fn type_cmd(args: Vec<String>) {
 }
 
 //check if the command exist then passed the arguments in
-pub fn run_cmd(simple_command: SimpleCommand, jobs: &mut Vec<Child>) {
-    let mut args = simple_command.command;
+pub fn run_cmd(simple_command: &SimpleCommand, jobs: &mut BTreeMap<u32, (Child, String)>) {
+    let mut args = simple_command.command.clone();
     let cmd_name = args[0].clone();
     if find_executable(cmd_name.as_str()).is_some() {
         let mut cmd = Command::new(cmd_name);
@@ -264,14 +276,15 @@ pub fn run_cmd(simple_command: SimpleCommand, jobs: &mut Vec<Child>) {
         if is_background_job {
             let child = cmd.spawn().expect("command failed to start");
             let child_id = child.id();
-            jobs.push(child);
+            let job_command = simple_command.command.clone().join(" ");
+            jobs.insert(child_id, (child, job_command));
             println!("[{}] {}", jobs.len(), child_id);
         } else {
             // Print the output
             if simple_command.redirection.is_empty() {
                 cmd.status().unwrap();
             } else {
-                for redir in simple_command.redirection {
+                for redir in simple_command.redirection.iter().clone() {
                     match redir.redir_type {
                         RedirectionType::Out => {
                             let output_file_path = Path::new(redir.file.as_str());
