@@ -1,12 +1,13 @@
 pub mod builtin;
 pub mod completer;
 pub mod lexer;
+use crate::builtin::Jobs;
 use crate::builtin::{cd_cmd, complete_cmd, jobs_cmd, pwd_cmd, run_cmd};
 use crate::completer::MyCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::{CompletionType, Config, Editor, history::DefaultHistory};
-use std::collections::{BTreeMap, HashMap};
-use std::process::Child;
+use std::collections::HashMap;
+// use std::process::Child;
 
 // fn current_dir() -> PathBuf {
 //     std::env::current_dir().unwrap()
@@ -29,36 +30,41 @@ fn main() {
     };
     rl.set_helper(Some(my_completer));
 
-    // let mut jobs: Vec<Child> = Vec::new();
-    let mut active_jobs: BTreeMap<u32, (Child, String)> = BTreeMap::new();
+    let mut jobs = Jobs::new();
+
     loop {
-        //check the jobs
-        // let mut pid_to_remove = Vec::new();
-        // println!("{:?}", active_jobs);
-        // jobs.retain_mut(|job| match job.try_wait() {
-        //     Ok(Some(_)) => false,
-        //     Ok(None) => true,
-        //     Err(e) => {
-        //         println!("error attempting to wait: {e}");
-        //         false
-        //     }
-        // });
-        active_jobs.retain(|_pid, (child, command)| {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    // Return false to delete it from the HashMap instantly
+        jobs.active_jobs.sort_by_key(|job| job.id);
+
+        let len = jobs.recents.len();
+        let most_recent_id = if len >= 1 { jobs.recents[len - 1] } else { 0 };
+        let second_recent_id = if len > 1 { jobs.recents[len - 2] } else { 0 };
+
+        jobs.active_jobs
+            .retain_mut(|job| match job.process.try_wait() {
+                Ok(Some(_)) => {
+                    if second_recent_id == job.id {
+                        println!(
+                            "[{}]-  Done                 {}",
+                            second_recent_id, job.cmd_name
+                        );
+                        jobs.recents.remove(len - 2);
+                    } else if most_recent_id == job.id {
+                        println!(
+                            "[{}]+  Done                 {}",
+                            most_recent_id, job.cmd_name
+                        );
+                        jobs.recents.pop();
+                    } else {
+                        println!("[{}]  Done                 {}", job.id, job.cmd_name);
+                    }
                     false
                 }
-                Ok(None) => {
-                    // Return true to keep it in the HashMap
-                    true
-                }
+                Ok(None) => true,
                 Err(e) => {
                     println!("error attempting to wait: {e}");
-                    false // Delete it on error
+                    false
                 }
-            }
-        });
+            });
 
         match rl.readline("$ ") {
             Ok(input) => {
@@ -83,9 +89,9 @@ fn main() {
                             }
                         }
                         "jobs" => {
-                            jobs_cmd(&active_jobs);
+                            jobs_cmd(&mut jobs);
                         }
-                        _ => run_cmd(&tokens, &mut active_jobs),
+                        _ => run_cmd(&tokens, &mut jobs),
                     }
                 }
             }

@@ -1,6 +1,6 @@
 use nix::unistd::AccessFlags;
 use nix::unistd::access;
-use std::collections::BTreeMap;
+// use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::env::home_dir;
 use std::env::set_current_dir;
@@ -15,6 +15,63 @@ use crate::lexer::SimpleCommand;
 
 pub static BUILTIN_CMDS: [&str; 7] = ["echo", "exit", "type", "pwd", "cd", "complete", "jobs"];
 const PATH_SEPARATED: char = ':';
+
+pub struct Job {
+    pub pid: u32,
+    pub id: u32,
+    // order: u32,
+    pub cmd_name: String,
+    pub process: Child,
+}
+
+pub struct Jobs {
+    pub active_jobs: Vec<Job>,
+    pub recents: Vec<u32>, // most_recent: u32,
+                           // second_recent: u32,
+}
+
+impl Job {
+    pub fn new(pid: u32, id: u32, cmd_name: String, process: Child) -> Job {
+        Job {
+            pid,
+            id,
+            // order,
+            cmd_name,
+            process,
+        }
+    }
+}
+
+impl Jobs {
+    pub fn new() -> Jobs {
+        Jobs {
+            active_jobs: Vec::new(),
+            recents: Vec::new(),
+            // most_recent: 0,
+            // second_recent: 0,
+        }
+    }
+    pub fn add_job(&mut self, job: Job) {
+        // self.second_recent = self.most_recent;
+        // self.most_recent = job.id;
+        self.recents.push(job.id);
+        self.active_jobs.push(job);
+    }
+
+    pub fn next_id(&self) -> u32 {
+        let mut return_id = 0;
+        let mut sorted: Vec<&Job> = self.active_jobs.iter().collect();
+        sorted.sort_by_key(|j| j.id);
+        for job in sorted {
+            if return_id + 1 != job.id {
+                return return_id + 1;
+            } else {
+                return_id = job.id;
+            }
+        }
+        return_id + 1
+    }
+}
 
 pub fn execute_builtins(cmd: SimpleCommand) {
     if cmd.redirection.is_empty() {}
@@ -176,19 +233,51 @@ pub fn complete_cmd(args: Vec<String>, reg: &mut HashMap<String, String>) {
     }
 }
 
-pub fn jobs_cmd(jobs: &BTreeMap<u32, (Child, String)>) {
-    let mut i = 1;
-    let len = jobs.len();
-    for (pid, (child, command_name)) in jobs {
-        if len - i == 1 {
-            println!("[{}]-  Running                 {}", i, command_name);
-        } else if len - i == 0 {
-            println!("[{}]+  Running                 {}", i, command_name);
-        } else {
-            println!("[{}]  Running                 {}", i, command_name);
-        }
-        i += 1;
-    }
+pub fn jobs_cmd(jobs: &mut Jobs) {
+    jobs.active_jobs.sort_by_key(|job| job.id);
+    let len = jobs.recents.len();
+    let most_recent_id = if len >= 1 { jobs.recents[len - 1] } else { 0 };
+    let second_recent_id = if len > 1 { jobs.recents[len - 2] } else { 0 };
+    // println!("{most_recent_id} {second_recent_id}");
+
+    jobs.active_jobs
+        .retain_mut(|job| match job.process.try_wait() {
+            Ok(Some(_)) => {
+                // let mut cmd_no_trail = cmd.split(" ").collect::<Vec<&str>>();
+                // cmd_no_trail.pop();
+                // let str_cmd_no_trail = cmd_no_trail.join(" ");
+                if second_recent_id == job.id {
+                    println!(
+                        "[{}]-  Done                 {}",
+                        second_recent_id, job.cmd_name
+                    );
+                    jobs.recents.remove(len - 2);
+                } else if most_recent_id == job.id {
+                    println!(
+                        "[{}]+  Done                 {}",
+                        most_recent_id, job.cmd_name
+                    );
+                    jobs.recents.pop();
+                } else {
+                    println!("[{}]  Done                 {}", job.id, job.cmd_name);
+                }
+                false
+            }
+            Ok(None) => {
+                if second_recent_id == job.id {
+                    println!("[{}]-  Running                 {} &", job.id, job.cmd_name);
+                } else if most_recent_id == job.id {
+                    println!("[{}]+  Running                 {} &", job.id, job.cmd_name);
+                } else {
+                    println!("[{}]  Running                 {} &", job.id, job.cmd_name);
+                }
+                true
+            }
+            Err(e) => {
+                println!("error attempting to wait: {e}");
+                false
+            }
+        });
 }
 
 fn is_builtin(cmd: &str) -> bool {
@@ -258,7 +347,7 @@ pub fn type_cmd(args: Vec<String>) {
 }
 
 //check if the command exist then passed the arguments in
-pub fn run_cmd(simple_command: &SimpleCommand, jobs: &mut BTreeMap<u32, (Child, String)>) {
+pub fn run_cmd(simple_command: &SimpleCommand, jobs: &mut Jobs) {
     let mut args = simple_command.command.clone();
     let cmd_name = args[0].clone();
     if find_executable(cmd_name.as_str()).is_some() {
@@ -275,10 +364,15 @@ pub fn run_cmd(simple_command: &SimpleCommand, jobs: &mut BTreeMap<u32, (Child, 
 
         if is_background_job {
             let child = cmd.spawn().expect("command failed to start");
-            let child_id = child.id();
-            let job_command = simple_command.command.clone().join(" ");
-            jobs.insert(child_id, (child, job_command));
-            println!("[{}] {}", jobs.len(), child_id);
+            let child_pid = child.id();
+
+            let job = Job::new(child_pid, jobs.next_id(), args.join(" "), child);
+
+            println!("[{}] {}", job.id, job.pid);
+            jobs.add_job(job);
+
+            // let job_command = simple_command.command.clone().join(" ");
+            // jobs.insert(child_id, (child, job_command));
         } else {
             // Print the output
             if simple_command.redirection.is_empty() {
